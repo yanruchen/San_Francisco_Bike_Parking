@@ -1,0 +1,210 @@
+---
+title: "San Francisco Bike Parking"
+author: "Yanru Chen"
+date: "11/17/2021"
+output: html_document
+---
+
+
+```{r message=FALSE, echo=FALSE, include = FALSE}
+pacman::p_load(ggmap, tidyverse, tidygeocoder, maps, leaflet, rosm, plotly)
+```
+
+```{r message=FALSE, echo=FALSE, include = FALSE}
+
+# Data loading and wrangling 
+
+SFBike <- read.csv("Bicycle_Parking.csv")
+summary(SFBike)
+# There are 14016 total records
+BikeLocation <- SFBike %>% filter(!is.na(LON)) # only keep the ones that has longitude
+summary(BikeLocation)
+# There are 13128 records with longitude and altitude
+BikeIndoor <- BikeLocation %>% filter(PLACEMENT == "GARAGE"| PLACEMENT == "GARAGE CAGE")
+BikeIndoor$PLACEMENT  # check if the filtered data are if the correct type (with PLACEMENT "GARAGE" or "GARAGE CAGE")
+SFBike %>% group_by(PLACEMENT) %>% summarize(n=n()) # check how many data are there for each type (25 garage and 2 garage cage)
+BikeYear <- SFBike %>% filter(INSTALL_YR > 0) 
+# filter the parking with year > 0 (remove year missing or NA)
+summary(BikeYear$INSTALL_YR)
+```
+
+# Bike Parking at San Francisco
+
+San Francisco is known as a bike friendly city. In this report, I will use the [Bicycle Parking dataset from DataSF](https://data.sfgov.org/Transportation/Bicycle-Parking/hn4j-6fx5) to explore the bike parking facilities. This topic interests me because I like to bike in San Franciso over the weekend. And whether or not I can find a bike rack easily could impact my travel plan. I hope the information in this report will be useful and interesting to you.
+
+Notes: 
+
+1. This report is based on Bike Parking provided by [SFMTA](https://www.sfmta.com/) (San Francisco Municipal Transportation Agency), and does not include private bike parkings. 
+
+2. [SFMTA Bicycle Parking Guidelines](https://www.sfmta.com/sites/default/files/reports-and-documents/2018/06/1_sfmta_bicycle_parking_guidelines-updated-05-15-2018.pdf) is a good resources to learn about bike parking types and install regulations. Each "rack" is corresponding to 2 spaces according to the SFMTA Bicycle Parking Guidelines.
+
+Below are the questions I want to explore in this report:
+
+    1. Which areas has more bike parking facilities, which area has less?
+    2. Where can I find a bike parking that is in garage? (This is particularly helpful in a rainy day, or if I need to leave bike there overnight)
+    3. When were the bike parking facilities built?
+
+
+
+## Which areas has more bike parking facilities, which area has less?
+
+
+Let's start from plotting bike parkings on the San Francisco map. We can see that around Mission District and China Town there are more parkings from the density and color depth of the dots. These are business areas so parking spots are in higher demands.
+Sadly, inside Golden Gate Park and Persidio there aren't many racks, so if I go there to hike I might need to keep the bike with me. Also on the left is mainly residential area so it makes sense to have less public bike parkings.
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+# reference1 https://jtr13.github.io/cc19/stamen-maps-with-ggmap.html
+# reference2 https://www.nceas.ucsb.edu/sites/default/files/2020-04/ggmapCheatsheet.pdf
+
+map <- get_stamenmap(bbox = c(left = -122.5164, bottom = 37.7066, right = -122.3554, top = 37.8103), maptype = c("toner-lite"), zoom = 13)    # base map of SF
+
+
+ggmap(map) +
+  geom_point(data = BikeLocation, 
+             mapping = aes(x = LON, y = LAT), alpha = 0.3, color = "blue") +
+  ggtitle("Spread of Bike Parking Locations") +
+  xlab("longitude") +             # change label for x-axis
+  ylab("latitude")                  # change label for y-axis
+
+```
+
+We can also see in the middle of the map there is an area with very little dots. I wonder if that is because of the topography. So we use terrain map to replace city map. As we can see the middle part has more hills. (In fact, twin peaks is here)
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+map2 <- get_stamenmap(bbox = c(left = -122.5164, bottom = 37.7066, right = -122.3554, top = 37.8103), maptype = c("terrain"), zoom = 13) 
+
+ggmap(map2) +     # Note here map2 is not same as map, since the mapetype has changed. So we name it differently
+  geom_point(data = BikeLocation, 
+             mapping = aes(x = LON, y = LAT), alpha = 0.3, color = "blue") +
+  ggtitle("Topography with bike parking") +
+  xlab("longitude") +             # change label for x-axis
+  ylab("latitude")                  # change label for y-axis
+
+```
+
+## Where can I find a bike parking that is in garage? 
+
+Now let's plot by the types of parking facilities (it is called "Placement" in the dataset). We can see there are six different types: Garage, Garage Cage, Parcel, Parklet, Roadway and SideWalk. What we want are "garage" and "garage cage". Because of the dominance of "sidewalk" type, it is hard to see the exact location of other types.
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+
+ggmap(map) +
+  geom_point(data = BikeLocation, 
+             mapping = aes(x = LON, y = LAT, alpha = 0.01, color = PLACEMENT)) +
+  # scale_color_manual(values = c("red", "green", "black", "black", "black", "black", "black"))+ 
+  # (Disabled) Because majority of racks are "sidewalk" so even manually change color doesn't show "garage" and "garage cage" very well.
+  ggtitle("Types of Bike Parking") +
+  xlab("longitude") +             # change label for x-axis
+  ylab("latitude") +                  # change label for y-axis
+  labs(color='Types of Bike Parking')  # change the legend, default was "PLACEMENT" which is not intuitive
+
+ 
+```
+
+To make it more visible, we only keep the type of "garage" and "garage cage", and remove all the other type. Now we can see them much more clearly. We notice that "garage" parkings only exist on north-eastern corner, and there are two "garage cage" parking on the middle right of the graph.
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+
+ggmap(map) +
+  geom_point(data = BikeIndoor,   # BikeIndoor filtered PLACEMENT of "garage" and "garage cage", see first chunk
+             mapping = aes(x = LON, y = LAT, alpha = 0.01, color = PLACEMENT)) +
+  ggtitle("Indoor Bike Parking") +
+  xlab("longitude") +             # change label for x-axis
+  ylab("latitude") +                 # change label for y-axis
+  labs(color='Types of Bike Parking')  # change the legend, default was "PLACEMENT" which is not intuitive
+
+```
+
+It would be nice if I can see where these bike parkings are, and find out which location has more spaces available, so let's do it.
+
+Things to keep in mind is that each bike parking may have more than one space, thus we need to find the total spaces, instead of counting the dots on the graph. The spaces of each location are on the table below:
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+BikeIndoorSpace <-BikeIndoor %>% select(LOCATION, PLACEMENT, SPACES) %>% group_by(LOCATION) %>% 
+           mutate(total_space = sum(SPACES)) %>% 
+           select(LOCATION, PLACEMENT, total_space) %>% 
+           unique() %>% arrange(desc(total_space))
+BikeIndoorSpace
+
+```
+It shows that UCSF Mission Bay and 3rd St Garage has most spaces (164 spaces). If, for some reason, I don't want to choose a bike cage, then Golden Gateway Garage might be a better choice (46 spaces). We can visualize this table using a bar graph. To make the graph easier to read, we only displayed the parking with no less than 30 spaces. When hovering over the bar, the total space will display.
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+g <- BikeIndoorSpace %>% filter(total_space >= 30) %>% 
+  # mutate(Location = ifelse(total_space < 30, "other", LOCATION)) %>%  
+  # (Disabled since the "other column" doesn't show very well) generate a new column "Location" to replace "LOCATION", the purpose is to combine LOCATIONS with total_space less than 30, so that bar graph is easier to read. 
+                    ggplot(aes(y = reorder(LOCATION, total_space), x = total_space)) +  
+  # display horizontally since the location name is long
+  # reorder by total_space
+                    geom_bar(stat = "identity",aes(fill = PLACEMENT)) + # color code by types of parking
+                    xlab("Total Space") +              # change label for x-axis
+                    ylab("Location") +                 # change label for y-axis
+                    labs(fill='Types of Bike Parking')  # change the legend, default was "PLACEMENT" which is not intuitive
+ggplotly(g, tooltip = "x")   # use ggplotly to display the total space when mouse hover over
+
+```
+
+Finally, to make it easier for my next trip, I can mark the Golden Gateway Garage on the map, and display the address.
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+Golden_Gateway <- tibble(
+  address = "250 Clay Street, San Francisco, CA",
+) %>%
+  tidygeocoder::geocode(address, method = "osm")
+
+Golden_Gateway_map <- leaflet() %>%   
+  addTiles() %>%
+  addMarkers(data = Golden_Gateway)  
+Golden_Gateway <- Golden_Gateway %>%
+  mutate(
+    title = "Golden Gateway Garage", 
+    street_address = "250 Clay Street, San Francisco"
+  )
+Golden_Gateway_map %>% 
+  addPopups(
+    data = Golden_Gateway, 
+    popup = ~paste0("<b>", title, "</b></br>", street_address)
+  )
+
+```
+
+## When were the bike parking facilities built?
+
+First of all, we can quickly see the bike parkings in this dataset were built in between 1997 to 2020. To see how many bike parkings were built each year, we plot them on a stacked bar graph below. We can see that most bike parking facilities were built in 2015, followed by 2020. We also notice that in 2008 there were very little bike parking facilities, which may be the result of economic recession.
+
+By hovering over the bar, we can see the count of each type of parking in that year. 
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+summary(BikeYear$INSTALL_YR)
+g <-BikeYear %>% group_by(PLACEMENT, INSTALL_YR) %>% summarize(n=n()) %>%  
+  # BikeYear have filtered INSTALL_YR of 0 or NA in the first chunk
+  # Group by PLACEMENT and INSTALL_YR so that the stacked bar can display different types of parking facilities
+  ggplot(aes(y = n, x = INSTALL_YR, fill = PLACEMENT)) +
+  geom_bar(stat = "identity")+
+  xlab("Year")+
+  ylab("New Bike Parking Count") +
+  labs(fill='Types of Bike Parking')  # change the legend, default was "PLACEMENT" which is not intuitive
+
+ggplotly(g)   # Tried to edit tooltip but didn't success
+ 
+```
+
+
+To see the cumulative amount of bike parking facilities, we sum the count over the install year. From the graph below we can see that starting 2014 the amount of bike parking grows faster than in the past. By hovering over we can also quickly check the total bike parking available at a specific year.
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+g <- BikeYear %>% group_by(INSTALL_YR) %>% summarize(count=n()) %>% 
+  mutate(total = cumsum(count)) %>%        # cumulative sum over years
+  ggplot(aes(y = total, x = INSTALL_YR)) +
+  geom_line() +
+  xlab("Year")+
+  ylab("Cumulative Bike Parking Count") 
+
+ggplotly(g)
+
+```
+
+## Conclusion
+
+Base on the the discussion above, we conclude that there are more bike parking facilities in north-eastern of San Francisco, regardless of the type of parking facilities. In fact, all of the garage and garage cage parking are in this area.
+
+The bike parking facilities in this dataset were built in 1997 to 2020. The largest amount of new facilities were built in 2015. The total bike parking facilities increased the most since 2014. By year 2020, there were 4616 parking facilities in San Francisco.
+   
+
